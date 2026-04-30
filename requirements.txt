@@ -11,4 +11,4 @@ tenacity>=8.2
 ta>=0.11
 scikit-learn>=1.4
 groq>=0.4
-google-genai>=1.0
+google-genai>=1.74.0
