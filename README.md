@@ -1,6 +1,6 @@
 # forex-backend
 
-FastAPI multi-user backend wrapping [`forex-agent`](https://github.com/sppidy/forex-agent). Part of [`trading-agent`](https://github.com/sppidy/trading-agent).
+FastAPI multi-user backend wrapping [`forex-agent`](https://github.com/sppidy/janus-forex-agent). Part of [`janus`](https://github.com/sppidy/janus).
 
 - FastAPI + uvicorn
 - **PostgreSQL**-backed (multi-user) — users, portfolios, positions, orders, trades, audit logs
@@ -40,4 +40,4 @@ See `users.py` for the SQLAlchemy models — users, portfolios, positions, order
 
 ## License
 
-[Apache-2.0](LICENSE). Contributing guidelines and security policy live in the [super-repo](https://github.com/sppidy/trading-agent).
+[Apache-2.0](LICENSE). Contributing guidelines and security policy live in the [super-repo](https://github.com/sppidy/janus).
