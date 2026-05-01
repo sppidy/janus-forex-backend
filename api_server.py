@@ -65,11 +65,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Forex Trading API", lifespan=lifespan)
+
+# CORS — restrict to trusted origins. Set TRUSTED_ORIGINS env var to a comma-
+# separated list of full origins (scheme + host + optional port). Falls back
+# to localhost only so a misconfigured deploy doesn't quietly accept all
+# origins (which would let any website call this API with the user's key).
+TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "TRUSTED_ORIGINS",
+        "http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=TRUSTED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type"],
 )
 
 
@@ -616,14 +630,41 @@ log_broadcaster = LogBroadcaster()
 
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
-    """Stream log file updates in real-time."""
-    # Check API key from headers or query param
-    api_key = websocket.headers.get("x-api-key") or websocket.query_params.get("key")
-    if not api_key or not get_user(api_key):
-        await websocket.close(code=1008)
-        return
+    """Stream log file updates in real-time.
 
-    await log_broadcaster.connect(websocket)
+    Auth precedence:
+      1. ``X-API-Key`` request header — preferred for native clients.
+      2. First message ``{"type":"auth","key":"..."}`` after accept — for
+         browsers (which can't set custom WS headers).
+      3. ``?key=`` query string — DEPRECATED. Tokens in URLs leak via proxy
+         logs / tracing. Still accepted for back-compat; will be removed.
+    """
+    AUTH_TIMEOUT_S = 5.0
+
+    header_key = websocket.headers.get("x-api-key")
+    query_key = websocket.query_params.get("key")
+    if header_key or query_key:
+        api_key = header_key or query_key
+        if not api_key or not get_user(api_key):
+            await websocket.close(code=1008); return
+        if query_key and not header_key:
+            logger.warning("WS auth via ?key= is deprecated; clients should send X-API-Key header or first-message auth.")
+        await websocket.accept()
+    else:
+        await websocket.accept()
+        try:
+            raw = await asyncio.wait_for(websocket.receive_text(), timeout=AUTH_TIMEOUT_S)
+            payload = json.loads(raw)
+            if payload.get("type") != "auth" or not get_user(payload.get("key", "")):
+                await websocket.close(code=1008); return
+        except (asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect):
+            try: await websocket.close(code=1008)
+            except Exception: pass
+            return
+
+    log_broadcaster.clients.append(websocket)
+    if log_broadcaster._task is None or log_broadcaster._task.done():
+        log_broadcaster._task = asyncio.create_task(log_broadcaster._tail_loop())
     try:
         while True:
             data = await websocket.receive_text()

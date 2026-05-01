@@ -5,6 +5,7 @@ import secrets
 import json
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy import (
     create_engine, Column, String, Boolean, DateTime, Text,
@@ -131,7 +132,20 @@ def _ensure_admin():
             portfolio = PortfolioRecord(user_id=admin.id)
             db.add(portfolio)
             db.commit()
-            print(f"[USERS] Created admin user. API Key: {key}")
+            # Don't log the key — write it to a file with restrictive perms so
+            # log aggregators (Docker, journald, Datadog) never capture it.
+            key_path = os.environ.get("ADMIN_KEY_FILE", "/run/forex/admin.key")
+            try:
+                Path(key_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(key_path).write_text(key)
+                os.chmod(key_path, 0o600)
+                print(f"[USERS] Admin user created. API key written to {key_path} (mode 0600).")
+            except OSError as e:
+                # Fallback: write to CWD if /run/forex isn't writable (e.g. local dev).
+                fallback = Path("./admin.key").resolve()
+                fallback.write_text(key)
+                os.chmod(fallback, 0o600)
+                print(f"[USERS] Admin user created. API key written to {fallback} (mode 0600). ({e})")
             return key
         return admin.api_key
 
